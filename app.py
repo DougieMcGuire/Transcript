@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from youtube_transcript_api import YouTubeTranscriptApi
+import youtube_transcript_api
 import re
 from urllib.parse import urlparse, parse_qs
 
@@ -48,7 +48,7 @@ def get_transcript():
             }), 400
         
         # Get transcript
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        transcript_list = youtube_transcript_api.YouTubeTranscriptApi.get_transcript(video_id)
         
         # Format transcript
         full_transcript = ' '.join([entry['text'] for entry in transcript_list])
