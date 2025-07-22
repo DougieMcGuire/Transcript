@@ -1,12 +1,18 @@
 from flask import Flask, request, jsonify
-from youtube_transcript_api import YouTubeTranscriptApi
 import re
 
 app = Flask(__name__)
 
+# Let's test what methods are actually available
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+    print("Available methods in YouTubeTranscriptApi:")
+    print([method for method in dir(YouTubeTranscriptApi) if not method.startswith('_')])
+except ImportError as e:
+    print(f"Import error: {e}")
+
 def extract_video_id(url):
     """Extract YouTube video ID from various YouTube URL formats"""
-    # Handle different YouTube URL formats
     patterns = [
         r'(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)',
         r'youtube\.com\/watch\?.*v=([^&\n?#]+)'
@@ -17,7 +23,6 @@ def extract_video_id(url):
         if match:
             return match.group(1)
     
-    # If it's already just a video ID
     if len(url) == 11 and url.isalnum():
         return url
     
@@ -26,74 +31,112 @@ def extract_video_id(url):
 @app.route('/transcript', methods=['POST'])
 def get_transcript():
     try:
-        # Get URL from request body
         data = request.get_json()
         
         if not data or 'url' not in data:
-            return jsonify({
-                'error': 'URL is required in request body',
-                'example': {'url': 'https://www.youtube.com/watch?v=VIDEO_ID'}
-            }), 400
+            return jsonify({'error': 'URL is required'}), 400
         
         url = data['url']
+        response_type = data.get('type', 'json')  # Default to JSON if not specified
         
-        # Extract video ID from URL
         video_id = extract_video_id(url)
         
         if not video_id:
+            if response_type == 'text':
+                return "Invalid YouTube URL", 400, {'Content-Type': 'text/plain'}
+            else:
+                return jsonify({'error': 'Invalid YouTube URL'}), 400
+        
+        # Get transcript using the API
+        try:
+            api_instance = YouTubeTranscriptApi()
+            transcript_list = api_instance.list(video_id)
+            
+            # Find first available transcript
+            transcript = None
+            for t in transcript_list:
+                transcript = t
+                break
+            
+            if transcript is None:
+                if response_type == 'text':
+                    return "No transcripts found", 404, {'Content-Type': 'text/plain'}
+                else:
+                    return jsonify({'error': 'No transcripts found'}), 404
+            
+            # Fetch the actual transcript data
+            fetched_transcript = transcript.fetch()
+            transcript_data = fetched_transcript.snippets
+            
+        except Exception as e:
+            if response_type == 'text':
+                return f"Error: {str(e)}", 500, {'Content-Type': 'text/plain'}
+            else:
+                return jsonify({
+                    'error': 'Failed to get transcript',
+                    'details': str(e),
+                    'available_methods': [method for method in dir(YouTubeTranscriptApi) if not method.startswith('_')]
+                }), 500
+
+        # Handle different response types
+        if response_type == 'text':
+            # Return only the text content
+            full_transcript = ' '.join([entry.text for entry in transcript_data])
+            return full_transcript, 200, {'Content-Type': 'text/plain'}
+            
+        elif response_type == 'raw':
+            # Return raw transcript entries as simple list
+            transcript_entries = []
+            for entry in transcript_data:
+                transcript_entries.append({
+                    'text': entry.text,
+                    'start': entry.start,
+                    'duration': entry.duration
+                })
+            return jsonify(transcript_entries)
+            
+        else:
+            # Default JSON response with metadata
+            full_transcript = ' '.join([entry.text for entry in transcript_data])
+            
+            transcript_entries = []
+            for entry in transcript_data:
+                transcript_entries.append({
+                    'text': entry.text,
+                    'start': entry.start,
+                    'duration': entry.duration
+                })
+            
             return jsonify({
-                'error': 'Invalid YouTube URL or video ID',
-                'provided_url': url
-            }), 400
-        
-        # Get transcript using the correct static method
-        transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
-        
-        # Format transcript
-        full_transcript = ' '.join([entry['text'] for entry in transcript_data])
-        
-        return jsonify({
-            'video_id': video_id,
-            'transcript': full_transcript,
-            'transcript_entries': transcript_data,
-            'total_entries': len(transcript_data)
-        })
+                'video_id': video_id,
+                'transcript': full_transcript,
+                'transcript_entries': transcript_entries,
+                'total_entries': len(transcript_entries)
+            })
         
     except Exception as e:
-        error_msg = str(e)
-        
-        # Handle common errors
-        if 'No transcripts were found' in error_msg or 'Could not retrieve a transcript' in error_msg:
-            return jsonify({
-                'error': 'No transcripts available for this video',
-                'details': 'The video may not have captions or transcripts enabled'
-            }), 404
-        elif 'Video unavailable' in error_msg:
-            return jsonify({
-                'error': 'Video is unavailable or private',
-                'details': 'Cannot access this video'
-            }), 404
-        else:
-            return jsonify({
-                'error': 'Failed to get transcript',
-                'details': error_msg
-            }), 500
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({'status': 'healthy', 'service': 'YouTube Transcript API'})
+        return jsonify({
+            'error': 'Failed to get transcript',
+            'details': str(e)
+        }), 500
 
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({
         'message': 'YouTube Transcript API',
-        'usage': {
-            'endpoint': '/transcript',
-            'method': 'POST',
-            'body': {'url': 'https://www.youtube.com/watch?v=VIDEO_ID'},
-            'description': 'Send a POST request with a YouTube URL to get the transcript'
+        'endpoint': '/transcript',
+        'method': 'POST',
+        'body_options': {
+            'url': 'https://www.youtube.com/watch?v=VIDEO_ID (required)',
+            'type': 'json (default) | text | raw (optional)'
+        },
+        'examples': {
+            'full_json': {'url': 'https://www.youtube.com/watch?v=VIDEO_ID'},
+            'text_only': {'url': 'https://www.youtube.com/watch?v=VIDEO_ID', 'type': 'text'},
+            'raw_entries': {'url': 'https://www.youtube.com/watch?v=VIDEO_ID', 'type': 'raw'}
         }
     })
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    print("Starting Flask app...")
+    app.run(debug=True, host='localhost', port=5000)
