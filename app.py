@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
 import re
-from urllib.parse import urlparse, parse_qs
 
 app = Flask(__name__)
 
@@ -47,39 +46,24 @@ def get_transcript():
                 'provided_url': url
             }), 400
         
-        # Get transcript - using list_transcripts to get available transcripts first
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        
-        # Get the first available transcript (usually auto-generated or manual)
-        transcript = None
-        for t in transcript_list:
-            try:
-                transcript = t.fetch()
-                break
-            except:
-                continue
-        
-        if not transcript:
-            return jsonify({
-                'error': 'No accessible transcripts found',
-                'video_id': video_id
-            }), 404
+        # Get transcript using the correct static method
+        transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
         
         # Format transcript
-        full_transcript = ' '.join([entry['text'] for entry in transcript])
+        full_transcript = ' '.join([entry['text'] for entry in transcript_data])
         
         return jsonify({
             'video_id': video_id,
             'transcript': full_transcript,
-            'transcript_entries': transcript,  # Include timestamped entries
-            'total_entries': len(transcript)
+            'transcript_entries': transcript_data,
+            'total_entries': len(transcript_data)
         })
         
     except Exception as e:
         error_msg = str(e)
         
         # Handle common errors
-        if 'No transcripts were found' in error_msg:
+        if 'No transcripts were found' in error_msg or 'Could not retrieve a transcript' in error_msg:
             return jsonify({
                 'error': 'No transcripts available for this video',
                 'details': 'The video may not have captions or transcripts enabled'
