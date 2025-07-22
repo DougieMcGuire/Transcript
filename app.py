@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-import youtube_transcript_api
+from youtube_transcript_api import YouTubeTranscriptApi
 import re
 from urllib.parse import urlparse, parse_qs
 
@@ -47,17 +47,32 @@ def get_transcript():
                 'provided_url': url
             }), 400
         
-        # Get transcript
-        transcript_list = youtube_transcript_api.YouTubeTranscriptApi.get_transcript(video_id)
+        # Get transcript - using list_transcripts to get available transcripts first
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        
+        # Get the first available transcript (usually auto-generated or manual)
+        transcript = None
+        for t in transcript_list:
+            try:
+                transcript = t.fetch()
+                break
+            except:
+                continue
+        
+        if not transcript:
+            return jsonify({
+                'error': 'No accessible transcripts found',
+                'video_id': video_id
+            }), 404
         
         # Format transcript
-        full_transcript = ' '.join([entry['text'] for entry in transcript_list])
+        full_transcript = ' '.join([entry['text'] for entry in transcript])
         
         return jsonify({
             'video_id': video_id,
             'transcript': full_transcript,
-            'transcript_entries': transcript_list,  # Include timestamped entries
-            'total_entries': len(transcript_list)
+            'transcript_entries': transcript,  # Include timestamped entries
+            'total_entries': len(transcript)
         })
         
     except Exception as e:
