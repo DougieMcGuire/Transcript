@@ -1,7 +1,7 @@
+import os
 from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
-import os
 
 app = Flask(__name__)
 
@@ -26,6 +26,5 @@ def get_transcript():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 5000))  # use Render's port or default 5000 locally
     app.run(host='0.0.0.0', port=port)
-    
